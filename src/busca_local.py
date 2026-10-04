@@ -5,6 +5,11 @@ import json
 
 
 def gera_combinacoes(n):
+    """
+    Calcula todas as combinações binários de pokemons, de tal forma que 1 é o pokemon ser usado e 0 não.
+    Ex.: [[0,0,0,0,1], [0,0,0,1,1], ..., [1,1,1,1,1]] a primeira quer dizer usar só o weedle, 
+    a segunda usar o weedle e o caterpie e a última usar todos pokemons.
+    """
     if n == 0:
         return [[]]  
 
@@ -15,6 +20,15 @@ COMBINACOES = [tuple(c) for c in gera_combinacoes(5)]
 
 
 def calcula_score(ind, pokemon_str, ginasio_diff):
+    """
+    Calcula o score de um indivíduo da população do AG.
+    O score é calculado pelo tempo que o agente fica no estádio com alguns acréscimos para punir soluções inválidas.
+    Os acréscimos são + 5000 se usar um pokemons que não tem mais vida
+    + 90000 se não usar pokemon nenhum para algum ginásio
+    + dificuldade do ginásio multiplicada por 20 se não usar nenhum pokemon para o ginásio
+    + 4600 se terminar sem nenhum pokemon com pelo menos um ponto de vida
+    """
+
     vida = [6,6,6,6,6]
     score = 0
     for i in range(24):
@@ -43,6 +57,22 @@ def calcula_score(ind, pokemon_str, ginasio_diff):
 
 
 def cruza(pop, scores, ind, y, gen, Gen, ciclos=4):
+    """
+    Função para cruzar indivíduos de população do AG.
+    Como no caso deste problema quanto maior o score pior, para calcular as probabilidades de escolher um indíviduo como pai
+    foi usada o método de ranking, de tal forma que cada indíviduo vai ter probabilidade igual a rank do indíviduo/soma dos ranks
+    de forma que o rank de cada indíviduo é a posição dele depois de ordenar eles pelo score.
+
+    A chance de mutação é uma variável aleatória que tem uma probabilidade de valer um valor médio, outra de valer um valor baixo
+    e outra de valer um valor alto, de forma que essas probabilidades e o valor da chance alta mudam dinamicamente ao decorrer 
+    do treinamento seguindo uma função cosseno, fazendo com que durante o treinamento, exista alguns ciclos de mutação alta
+    e baixa, o que faz com que o treinamento tenha oportunidades de refinar um ótimo local em busca do global, mas também tenha
+    oportunidades de achar outros ótimos locais (e eventualmente o global) via uma mutação.
+
+    Para o algoritmo de cruzamento, como não era possível afirmar o melhor possível para o problema, foram usados 3 diferentes
+    com chances iguais de serem escolhidos para a geração de cada filho, os 3 escolhidos foram crossover de um ponto só,
+    cruzamento de múltiplos pontos, e distribuição uniforme.
+    """
     ranking = np.argsort(scores)
     weight = np.arange(ind,0,-1)
     probs = np.zeros(ind)
@@ -105,6 +135,13 @@ def cruza(pop, scores, ind, y, gen, Gen, ciclos=4):
 
 
 def treina(pokemons_str, ginasios_diff, ind=100, Gen=500):
+    """
+    Função de treinamento, funciona praticamente para chamar as outras durante o treinamento.
+    A função guarda o melhor indíviduo e devolve ele, além disso plota um grafico mostrando a evolução da média
+    dos indivíduos e o melhor deles durante as gerações.
+    A forma de inserção de novos indivíduos na população foi substituir totalmente a geração antiga pela nova, mantendo só 
+    alguns (30) dos melhores indivíduos da antiga na nova.
+    """
     y = len(ginasios_diff)
     pop = np.array([[random.randint(0, 31) for _ in range(y)] for _ in range(ind)])
 
@@ -148,6 +185,9 @@ def treina(pokemons_str, ginasios_diff, ind=100, Gen=500):
 
 
 def mostra_vida(result, pokemons):
+    """
+    Função auxiliar só para debug, mostra quanto de vida cada pokemon ficou ao fim de cada de ginásio
+    """
     vida = [6, 6, 6, 6, 6]
     for i in range(24):
         pokemons_usados = COMBINACOES[result[i]]
@@ -162,6 +202,9 @@ def mostra_vida(result, pokemons):
 
 
 def escreve_json(result, pokemons, ginasios, caminho="resultado.json"):
+    """
+    Apenas escreve um json de quais pokemons foram usados em cada ginásio
+    """
     dados = {}
     for i in range(len(ginasios)):
         pokemons_usados = COMBINACOES[int(result[i])]
@@ -175,6 +218,11 @@ def escreve_json(result, pokemons, ginasios, caminho="resultado.json"):
 
 
 def main():
+    """
+    Função main, apenas chama as outras e passa as configurações de pontos de vida e dificuldade dos ginásios, estes podem
+    ser alterados sem problema aqui, apenas a quantidade de pokemons e de ginásios que não poderia ser só alterada aqui, iriam
+    necessitar de outras mudanças ao longo do código.
+    """
     pokemons = ["Pikachu", "Bulbassauro", "Rattata", "Caterpie", "Weedle"]
     pokemons_str = [1.5, 1.4, 1.3, 1.2, 1.1]
     ginasios = [2,3,4,5,6,7,8,9,"B","C","D","E","G","H","I","J","K","L","N","O","P","Q","S","T"]
@@ -183,6 +231,6 @@ def main():
     result = treina(pokemons_str, ginasios_diff, ind=600, Gen=10000)
     mostra_vida(result, pokemons)
 
-    escreve_json(result, pokemons, ginasios)
+    # escreve_json(result, pokemons, ginasios)
 
 main()
