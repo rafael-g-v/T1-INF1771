@@ -1,30 +1,22 @@
 """Cálculos de custo e energia ao longo do caminho (sem dependência de interface)."""
-from dataclasses import dataclass, field
-
 from . import config
 
 
-@dataclass
 class Resumo:
-    ordem: list = field(default_factory=list)             # ginásios na ordem da 1ª visita
-    ginasio_no_passo: dict = field(default_factory=dict)  # índice do caminho -> ginásio
-    rota_acum: list = field(default_factory=list)         # custo da rota até o passo i
-    bat_acum: list = field(default_factory=list)          # custo das batalhas até o passo i
-    batalhas_ate: list = field(default_factory=list)      # nº de batalhas feitas até o passo i
-    energias: list = field(default_factory=list)          # energias[k] = energia após k batalhas
-    pokemons_usados: dict = field(default_factory=dict)   # ginásio -> Pokémons que lutaram
-    tempo_batalha: dict = field(default_factory=dict)
-    avisos: list = field(default_factory=list)
-    custo_rota: int = 0
-    custo_batalhas: float = 0.0
-
-    @property
-    def custo_total(self):
-        return self.custo_rota + self.custo_batalhas
-
-    @property
-    def energia_final(self):
-        return self.energias[-1]
+    def __init__(self):
+        self.ordem = []              # ginásios na ordem da 1ª visita
+        self.ginasio_no_passo = {}   # índice do caminho -> ginásio
+        self.rota_acum = []          # custo da rota até o passo i
+        self.bat_acum = []           # custo das batalhas até o passo i
+        self.batalhas_ate = []       # nº de batalhas feitas até o passo i
+        self.energias = []           # energias[k] = energia após k batalhas
+        self.pokemons_usados = {}    # ginásio -> Pokémons que lutaram
+        self.tempo_batalha = {}
+        self.avisos = []
+        self.custo_rota = 0
+        self.custo_batalhas = 0.0
+        self.custo_total = 0.0
+        self.energia_final = {}      # energia de cada Pokémon ao chegar ao destino
 
 
 def tempo_batalha(ginasio, pokemons):
@@ -32,23 +24,21 @@ def tempo_batalha(ginasio, pokemons):
     return config.DIFICULDADE_GINASIOS[ginasio] / poder if poder else 0.0
 
 
-def calcular_resumo(mapa, replay):
+def calcular_resumo(mapa, caminho, custo_acumulado, pokemons_por_ginasio):
     s = Resumo()
-    caminho = replay.caminho
+    ginasio_em = {pos: g for g, pos in mapa.ginasios.items()}
     energia = {p: config.ENERGIA_INICIAL for p in config.PODER_POKEMONS}
     s.energias.append(dict(energia))
     visitados = set()
-    rota = 0
     bat = 0.0
     nbat = 0
-    for i, (r, c) in enumerate(caminho):
-        rota += mapa.custo(r, c)
-        g = mapa.ginasio_em.get((r, c))
+    for i, posicao in enumerate(caminho):
+        g = ginasio_em.get(posicao)
         if g is not None and g not in visitados:
             visitados.add(g)
             s.ordem.append(g)
             s.ginasio_no_passo[i] = g
-            escolhidos = replay.pokemons_por_ginasio.get(g)
+            escolhidos = pokemons_por_ginasio.get(g)
             if escolhidos is None:
                 s.avisos.append(f"Ginásio {g} sem Pokémons definidos")
                 escolhidos = []
@@ -67,10 +57,13 @@ def calcular_resumo(mapa, replay):
             bat += t
             nbat += 1
             s.energias.append(dict(energia))
-        s.rota_acum.append(rota)
+        s.rota_acum.append(custo_acumulado[i])
         s.bat_acum.append(bat)
         s.batalhas_ate.append(nbat)
+    rota = custo_acumulado[-1] if caminho else 0
     s.custo_rota, s.custo_batalhas = rota, bat
+    s.custo_total = rota + bat
+    s.energia_final = dict(energia)
     if caminho:
         if caminho[0] != mapa.origem:
             s.avisos.append("O caminho não começa na origem")
