@@ -1,236 +1,238 @@
-import random
-import numpy as np
-import matplotlib.pyplot as plt
+import heapq
 import json
 
 
-def gera_combinacoes(n):
+def convert_map(terrain):
     """
-    Calcula todas as combinações binários de pokemons, de tal forma que 1 é o pokemon ser usado e 0 não.
-    Ex.: [[0,0,0,0,1], [0,0,0,1,1], ..., [1,1,1,1,1]] a primeira quer dizer usar só o weedle, 
-    a segunda usar o weedle e o caterpie e a última usar todos pokemons.
+    Converte a matriz de caracteres lida do arquivo em uma matriz de custos de terreno,
+    substituindo cada caractere pelo custo correspondente (ou pelo nome do ponto, 
+    quando a célula for um ponto especial como init, OBJ ou G1-G24).
+    Também monta o dicionário de coordenadas de cada ponto especial.
     """
-    if n == 0:
-        return [[]]  
+    terrain_dict = {
+        "M": 200, "A": 30, "F": 15, "R": 5, ".": 1,
+        "2": "G1", "3": "G2", "4": "G3", "5": "G4", "6": "G5",
+        "7": "G6", "8": "G7", "9": "G8", "B": "G9", "C": "G10",
+        "D": "G11", "E": "G12", "G": "G13", "H": "G14", "I": "G15",
+        "J": "G16", "K": "G17", "L": "G18", "N": "G19", "O": "G20",
+        "P": "G21", "Q": "G22", "S": "G23", "T": "G24", "U": "OBJ",
+        "1": "init"
+    }
 
-    menores = gera_combinacoes(n - 1)
-    return [c + [0] for c in menores] + [c + [1] for c in menores]
+    coordenadas = {}
 
-COMBINACOES = [tuple(c) for c in gera_combinacoes(5)]
+    for i in range(len(terrain)):
+        for j in range(len(terrain[i])):
+            terrain[i][j] = terrain_dict[terrain[i][j]]
+            if type(terrain[i][j]) == str:
+                coordenadas[terrain[i][j]] = [i, j]
+
+    return terrain, coordenadas
 
 
-def calcula_score(ind, pokemon_str, ginasio_diff):
+def read_txt(path):
     """
-    Calcula o score de um indivíduo da população do AG.
-    O score é calculado pelo tempo que o agente fica no estádio com alguns acréscimos para punir soluções inválidas.
-    Os acréscimos são + 5000 se usar um pokemons que não tem mais vida
-    + 90000 se não usar pokemon nenhum para algum ginásio
-    + dificuldade do ginásio multiplicada por 20 se não usar nenhum pokemon para o ginásio
-    + 4600 se terminar sem nenhum pokemon com pelo menos um ponto de vida
+    Lê o arquivo de mapa linha a linha e monta a matriz de caracteres bruta,
+    depois chama convert_map para transformar isso em custos e coordenadas.
     """
-
-    vida = [6,6,6,6,6]
-    score = 0
-    for i in range(24):
-        pokemons = COMBINACOES[ind[i]]
-
-        if sum(pokemons) == 0:
-            score += 90000
-
-        div = 0
-        for j in range(5):
-            if pokemons[j] == 1:
-                if vida[j] <= 0:
-                    score += 5000
-                else:
-                    vida[j] -= 1
-                div += pokemon_str[j]
-        if div > 0:
-            score += ginasio_diff[i]/div
-        else:
-            score += ginasio_diff[i]*20
-
-    if all(v <= 0 for v in vida):
-        score += 4600
-
-    return score
+    terrain = []
+    with open(path, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.rstrip('\n')
+            terrain.append(list(line))
+    return convert_map(terrain)
 
 
-def cruza(pop, scores, ind, y, gen, Gen, ciclos=4):
+def custo_celula(terrain, c):
+    cell = terrain[c[0]][c[1]]
+    if cell == "init" or cell == "OBJ":
+        return 1
+    if type(cell) == str:
+        return 0
+    return cell
+
+
+def astar(origem, destino, terrain):
     """
-    Função para cruzar indivíduos de população do AG.
-    Como no caso deste problema quanto maior o score pior, para calcular as probabilidades de escolher um indíviduo como pai
-    foi usada o método de ranking, de tal forma que cada indíviduo vai ter probabilidade igual a rank do indíviduo/soma dos ranks
-    de forma que o rank de cada indíviduo é a posição dele depois de ordenar eles pelo score.
-
-    A chance de mutação é uma variável aleatória que tem uma probabilidade de valer um valor médio, outra de valer um valor baixo
-    e outra de valer um valor alto, de forma que essas probabilidades e o valor da chance alta mudam dinamicamente ao decorrer 
-    do treinamento seguindo uma função cosseno, fazendo com que durante o treinamento, exista alguns ciclos de mutação alta
-    e baixa, o que faz com que o treinamento tenha oportunidades de refinar um ótimo local em busca do global, mas também tenha
-    oportunidades de achar outros ótimos locais (e eventualmente o global) via uma mutação.
-
-    Para o algoritmo de cruzamento, como não era possível afirmar o melhor possível para o problema, foram usados 3 diferentes
-    com chances iguais de serem escolhidos para a geração de cada filho, os 3 escolhidos foram crossover de um ponto só,
-    cruzamento de múltiplos pontos, e distribuição uniforme.
+    Busca o caminho mais barato entre dois pontos do grid usando A* padrão,
+    com heurística de distância de Manhattan e movimento em 4 direções.
+    Devolve o custo do caminho, o caminho e as células exploradas.
     """
-    ranking = np.argsort(scores)
-    weight = np.arange(ind,0,-1)
-    probs = np.zeros(ind)
-    probs[ranking]=weight/weight.sum()
+    heap = [[abs(origem[0]-destino[0]) + abs(origem[1]-destino[1]), 0, origem]]
+    g_score = {tuple(origem): 0}
+    parent = {tuple(origem): None}
+    closed = set()
 
-    onda = (1 - np.cos(2*np.pi*ciclos*gen/Gen)) / 2
+    while heap:
+        menor = heapq.heappop(heap)
+        coord = menor[2]
+        coord_key = tuple(coord)
 
-    p_baixa = 0.4 - 0.2*onda
-    p_media = 0.1
-    valor_alta = 2*(0.005 + 0.145*onda)
+        if coord == destino:
+            caminho = []
+            while coord_key is not None:
+                caminho.insert(0, list(coord_key))
+                coord_key = parent[coord_key]
+            return menor[1], caminho
+        if coord_key in closed:
+            continue
+        closed.add(coord_key)
 
-    mutation_str = random.random()
-    limite1 = p_baixa
-    limite2 = p_baixa + p_media
-    mutation_chance = 0.01 if mutation_str <= limite1 else (0.002 if mutation_str <= limite2 else valor_alta)
+        adj = [[coord[0]+di, coord[1]+dj] for di, dj in [(-1,0),(1,0),(0,-1),(0,1)]]
+        adj = [c for c in adj if 0 <= c[0] < len(terrain) and 0 <= c[1] < len(terrain[0])]
 
-    new_pop = np.zeros((ind-30, y), dtype=int)
-    for i in range(ind-30):
-        indexes = np.random.choice(len(pop), size=2, p=probs)
-        parent1, parent2 = pop[indexes[0]], pop[indexes[1]]
-        son = np.zeros(y, dtype=int)
-
-        method_chance = random.random()
-
-        if method_chance <= 1/3:
-            c = random.randint(0, y)
-            son[0:c] = parent1[0:c]
-            son[c:] = parent2[c:]
-
-            for g in range(y):
-                if random.random() <= mutation_chance:
-                    son[g] = random.randint(0, 31)
-
-        elif method_chance <= 2/3:
-            parents = np.array([parent1, parent2])
-            parent = random.choice([0, 1])
-            prob_troca = 6 / y 
-
-            for g in range(y):
-                son[g] = parents[parent, g]
-                if random.random() < prob_troca:
-                    parent = 1 - parent
-
-            for g in range(y):
-                if random.random() <= mutation_chance:
-                    son[g] = random.randint(0, 31)
-
-        else:
-            parents = np.array([parent1, parent2])
-            for g in range(y):
-                parent = random.choice([0,1])
-                son[g] = parents[parent, g]
-                if random.random() <= mutation_chance:
-                    son[g] = random.randint(0, 31)
-
-        new_pop[i] = son
-
-    return new_pop
+        for adj_i in adj:
+            adj_key = tuple(adj_i)
+            if adj_key in closed:
+                continue
+            g_n = menor[1] + custo_celula(terrain, adj_i)
+            if adj_key not in g_score or g_n < g_score[adj_key]:
+                g_score[adj_key] = g_n
+                parent[adj_key] = coord_key
+                h_n = abs(adj_i[0]-destino[0]) + abs(adj_i[1]-destino[1])
+                heapq.heappush(heap, [g_n+h_n, g_n, adj_i])
 
 
-
-def treina(pokemons_str, ginasios_diff, ind=100, Gen=500):
+def montar_matriz(coordenadas, terrain, pontos):
     """
-    Função de treinamento, funciona praticamente para chamar as outras durante o treinamento.
-    A função guarda o melhor indíviduo e devolve ele, além disso plota um grafico mostrando a evolução da média
-    dos indivíduos e o melhor deles durante as gerações.
-    A forma de inserção de novos indivíduos na população foi substituir totalmente a geração antiga pela nova, mantendo só 
-    alguns (30) dos melhores indivíduos da antiga na nova.
+    Roda o A* do grid entre todo par de pontos especiais e monta a matriz de distâncias
     """
-    y = len(ginasios_diff)
-    pop = np.array([[random.randint(0, 31) for _ in range(y)] for _ in range(ind)])
-
-    plot_mean = []
-    plot_best = []
-    gen = Gen
-    for gen in range(gen):
-        scores = np.array([calcula_score(indi, pokemons_str, ginasios_diff) for indi in pop])
-        if gen > 0:
-            pop = np.vstack([pop, elite])
-            scores = np.concatenate([scores, elite_scores])
-
-        mean_score = sum(scores)/ind
-        best_score = min(scores)
-        best = pop[np.argsort(scores)[0]]
-        plot_mean.append(mean_score)
-        plot_best.append(best_score)
-        print(f"Gen: {gen+1} || Mean: {mean_score} || Best: {best_score}")
-        top_five = np.argsort(scores)[:30]
-        elite = pop[top_five]
-        elite_scores = scores[top_five]
-        new_pop = cruza(pop, scores, ind, y, gen, Gen)
-        pop = new_pop
-
-    fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(10, 8))
-
-    ax1.plot(range(Gen), plot_best, label="Best", color="tab:blue")
-    ax1.set_ylabel("Score (Best)")
-    ax1.set_title("Evolução do AG")
-    ax1.legend()
-
-    ax2.plot(range(Gen), plot_mean, label="Mean", color="tab:orange")
-    ax2.set_xlabel("Geração")
-    ax2.set_ylabel("Score (Mean)")
-    ax2.legend()
-
-    plt.tight_layout()
-    plt.show()
-
-    return best
+    M = [[0]*len(pontos) for _ in pontos]
+    caminhos = {}
+    for i in range(len(pontos)):
+        for j in range(i+1, len(pontos)):
+            custo, caminho = astar(coordenadas[pontos[i]], coordenadas[pontos[j]], terrain)
+            M[i][j] = M[j][i] = custo
+            caminhos[(i, j)] = caminho
+            caminhos[(j, i)] = caminho[::-1]
+    return M, caminhos
 
 
-def mostra_vida(result, pokemons):
+def mst(nos, M):
     """
-    Função auxiliar só para debug, mostra quanto de vida cada pokemon ficou ao fim de cada de ginásio
+    Devolve o custo da árvore geradora minima e o grau de cada no
+    A função recebe a lista de nos (ginasios + ponto inicial + objetivo) e uma matriz de custos M
+    M pode ser a matriz de distancias, mas também pode ser uma outra matriz de custo
     """
-    vida = [6, 6, 6, 6, 6]
-    for i in range(24):
-        pokemons_usados = COMBINACOES[result[i]]
-        for j in range(5):
-            if pokemons_usados[j] == 1:
-                vida[j] -= 1
+    total = 0
+    graus = {n:0 for n in nos}
+    arvore = [nos[0]]
+    while(True in [graus[n]==0 for n in graus]):
+        best = None
+        for n in nos:
+            if n in arvore:
+                continue
+            for narv in arvore:
+                d = M[narv][n]
+                if best == None or d < best[0]:
+                    best = [d, [narv,n]]
+        total += best[0]
+        arvore.append(best[1][1])
+        for n in best[1]:
+            graus[n] += 1
+    return total, graus
 
-        print(f"Ginásio {i+1}:")
-        for nome, v in zip(pokemons, vida):
-            print(f"  {nome}: {v}")
-        print()
 
-
-def escreve_json(result, pokemons, ginasios, caminho="resultado.json"):
+def calcula_pesos(M):
     """
-    Apenas escreve um json de quais pokemons foram usados em cada ginásio
+    O MST devolve uma árvore que pode ser uma rota, mas quase sempre vai ter pontos que vão funcionar como um hub
+    de forma que vão ter varias arestas saindo destes pontos e terminando em pontos intermediários que não teriam ligação com nenhum outro
+    Isso faz com que o MST tenha um custo muito mais barato que o real, serve como heuristica, mas fica muito folgado tornando a execução
+    do A* muito lenta.
+    Para resolver isso essa função calcula pesos pros pontos e uma matriz de custos alternativa que vai ter os custos da original mais
+    os pesos dos pontos das arestas, e esses pesos são ajustados iterativamente de forma a aumentar pesos de pontos que possuem graus maiores
+    do que deveria e diminui dos que possuem menor, de forma a ir aproximando a MST de uma rota
+    Usar esses pesos não invalida o A* pq no fim todas as rotas vão ter um parcela igual de custos de pesos, de forma que a rota mais barata
+    vai continuar sendo a mais barata, a segunda mais barata vai continuar sendo a segunda mais barata e etc, assim como a árvore vai continuar
+    sendo mais barata que a rota mais barata, só que a tendência é que a diferença entre o custo da árvore e da rota vai ficar menor de forma
+    que ela vai ser uma heuristica mais apertada pro A* o que vai acelerar o algoritmo.
     """
-    dados = {}
-    for i in range(len(ginasios)):
-        pokemons_usados = COMBINACOES[int(result[i])]
-        nomes = [pokemons[j] for j in range(5) if pokemons_usados[j] == 1]
-        dados[str(ginasios[i])] = nomes
+    n = len(M)
+    p = [0.0] * n
+    alvo = [1] + [2] * (n - 2) + [1]
+    for ite in range(1000):
+        M2 = [[M[i][j] + p[i] + p[j] for j in range(n)] for i in range(n)]
+        _, graus = mst(list(range(n)), M2)
+        for i in range(n):
+            p[i] += (graus[i] - alvo[i]) * 0.99 ** ite
+    return p
 
-    with open(caminho, "w", encoding="utf-8") as f:
-        json.dump(dados, f, ensure_ascii=False, indent=2)
 
-    return dados
-
-
-def main():
+def h(atual, restantes, M2, p, fim):
     """
-    Função main, apenas chama as outras e passa as configurações de pontos de vida e dificuldade dos ginásios, estes podem
-    ser alterados sem problema aqui, apenas a quantidade de pokemons e de ginásios que não poderia ser só alterada aqui, iriam
-    necessitar de outras mudanças ao longo do código.
+    Funções heuristica, vai pegar o custo da matriz de custos alternativa gerada pelos ajustes de pesos feitos pela calcula_pesos,
+    calcular o custo da MST usando essa matriz, retirando o peso do ponto inicial, do final e 2 vezes a soma do peso dos intermediários
+    já que o peso do inicial e final só entram na conta uma vez porque eles tem grau 1 e dos intermediários 2 já que tem grau 2
+    Na prática é como se rota minima com custos originais tivesse custo R e a MST custo M, de forma que M <= R, ao considerar os pesos
+    o custo da rota minima vai ser R+K por exemplo e da árvore vai ser M' de forma que M' <= R+K, logo M'-K <= R, por isso podemos usar
+    M'-K como o custo da heuristíca no lugar de M, e a tendencia é que M'-K seja > M, portanto seja uma heuristica melhor
     """
-    pokemons = ["Pikachu", "Bulbassauro", "Rattata", "Caterpie", "Weedle"]
-    pokemons_str = [1.5, 1.4, 1.3, 1.2, 1.1]
-    ginasios = [2,3,4,5,6,7,8,9,"B","C","D","E","G","H","I","J","K","L","N","O","P","Q","S","T"]
-    ginasios_diff = [35,40,45,50,55,60,65,70,75,80,85,90,95,100,110,120,130,140,150,155,160,165,170,180]
+    total, _ = mst([atual] + list(restantes) + [fim], M2)
+    return total - 2 * sum(p[k] for k in restantes) - p[atual] - p[fim]
 
-    result = treina(pokemons_str, ginasios_diff, ind=600, Gen=10000)
-    mostra_vida(result, pokemons)
 
-    # escreve_json(result, pokemons, ginasios)
+def ordem_ate(estado, parent):
+    ordem = []
+    while estado is not None:
+        ordem.insert(0, estado[0])
+        estado = parent[estado]
+    return ordem
 
-main()
+
+def astar_rota(M, caminhos):
+    """
+    A* para achar a ordem de visita dos ginásios usando a matriz de distancias pré-calculada
+    Para usar o A* para resolver a ordem dos ginásios precisamos usar estados para informar em que ponto ele está,
+    estes estados ficaram sendo uma tupla (ponto atual, set de pontos que faltam)
+    Também resaltasse que o g(n) começa sendo 1 no heap porque o enunciado explicitou que só para sair do bloco inicial
+    há um custo = 1
+    """
+    fim = len(M) - 1
+    p = calcula_pesos(M)
+    M2 = [[M[i][j] + p[i] + p[j] for j in range(len(M))] for i in range(len(M))]
+
+    inicio = (0, frozenset(range(1, fim)))
+    heap = [[1+h(0, inicio[1], M2, p, fim), 1, inicio]]
+    g_score = {inicio: 1}
+    parent = {inicio: None}
+    closed = set()
+    historico = []
+
+    iteracoes = 0
+
+    while heap:
+        iteracoes += 1
+        f, g, estado = heapq.heappop(heap)
+        atual, restantes = estado
+        if estado in closed:
+            continue
+        print(f"Iteracao {iteracoes}: Falta passar por {len(restantes) + (0 if atual == fim else 1)} pontos || g(n) = {g} || h(n) = {f-g} || LB = {f}")
+        historico.append({"rota": ordem_ate(estado, parent), "g": g, "f": f})
+        if atual == fim:
+            ordem = ordem_ate(estado, parent)
+            trechos = [caminhos[(ordem[k], ordem[k+1])] for k in range(len(ordem)-1)]
+            return g, ordem, trechos, historico
+        closed.add(estado)
+
+        for prox in (restantes if restantes else [fim]):
+            novo = (prox, restantes - {prox})
+            g_n = g + M[atual][prox]
+            if novo not in closed and (novo not in g_score or g_n < g_score[novo]):
+                g_score[novo] = g_n
+                parent[novo] = estado
+                f_n = g_n + (0 if prox == fim else h(prox, novo[1], M2, p, fim))
+                heapq.heappush(heap, [f_n, g_n, novo])
+
+
+terrain, coordenadas = read_txt(r"data\kanto.txt")
+pontos = ["init"] + [f"G{k+1}" for k in range(24)] + ["OBJ"]
+
+M, caminhos = montar_matriz(coordenadas, terrain, pontos)
+custo, ordem, trechos, historico = astar_rota(M, caminhos)
+
+print([pontos[i] for i in ordem])
+print(custo)
+
+json.dump(historico, open("outputs/historico_astar_rota.json", "w"), indent=2)
+json.dump({"custo": custo, "pontos": pontos, "ordem": ordem, "trechos": trechos}, open("outputs/rota_final.json", "w"), indent=2)
+json.dump({f"{i}-{j}": c for (i, j), c in caminhos.items()}, open("outputs/caminhos_grid.json", "w"))
