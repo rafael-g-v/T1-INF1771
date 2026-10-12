@@ -85,6 +85,8 @@ def astar(origem, destino, terrain):
             adj_key = tuple(adj_i)
             if adj_key in closed:
                 continue
+            if type(terrain[adj_i[0]][adj_i[1]]) == str and adj_i != destino:
+                continue
             g_n = menor[1] + custo_celula(terrain, adj_i)
             if adj_key not in g_score or g_n < g_score[adj_key]:
                 g_score[adj_key] = g_n
@@ -235,4 +237,4 @@ print(custo)
 
 json.dump(historico, open("outputs/historico_astar_rota.json", "w"), indent=2)
 json.dump({"custo": custo, "pontos": pontos, "ordem": ordem, "trechos": trechos}, open("outputs/rota_final.json", "w"), indent=2)
-json.dump({f"{i}-{j}": c for (i, j), c in caminhos.items()}, open("outputs/caminhos_grid.json", "w"))
+json.dump({f"{i}-{j}": c for (i, j), c in caminhos.items()}, open("outputs/caminhos_grid.json", "w"))
