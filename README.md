@@ -53,3 +53,22 @@ Usamos uma combinação de 3 formas de cruzamento no AG (cross over com 1 ponto 
 A melhor solução achada demorou 1484.675 unidades de tempo, e ao treinar o AG 20 vezes, a média das soluções foi 1485.030 com desvio padrão de 0.678, treinamos durante 10000 gerações (não era necessário tanto, mas fizemos isso para atingirmos o ótimo global de maneira mais consistente) e com 600 indíviduos.
 
 Gráficos da distribuição das soluções e da evolução de uma rodada que atingiu a solução ótima, assim o Json da solução ótima de fato estão na pasta outputs.
+
+
+## A*
+
+Separamos em duas etapas, primeiro usar um A* para achar a distancia entre cada par de pontos "especiais" (Origem, Objetivo e Ginásios) 
+usando heuristica sendo a distancia mahattan, e depois um A* para achar a melhor rota que passa por todos os ginásios usando como estado
+o ponto que o agente tá e os pontos que faltam ser explorados, a heuristica aqui foi uma MST (árvore geradora mínima), porém por conta da 
+MST padrão ficar muito folgada o A* demorava muito, a solução foi gerar uma matriz de distancias artificiais a partir da original
+de forma que o custo nessa matriz é igual a distancia mais a soma dos pesos dos 2 pontos, onde esses pesos são calculados de forma
+a fazer com que os graus dos pontos na árvore fiquem mais próximos dos graus que eles teriam numa rota, ou seja, ginásios que tenham
+grau maior que 2 ficam com pesos maiores, com grau menor que 2 ficam com pesos menores e por ae vai, isso faz com que a árvore mínima
+tenda a ficar mais parecida com uma rota. Essa heurística gerada assim é válida porque se somarmos os pesos de todos os pontos (no caso
+somando o peso dos pontos da extremidade uma vez e 2 vezes dos ginásios) e chamarmos essa soma de K, se uma rota na matriz original tinha custo
+R, com essa matriz ela vai ter custo R+K, de forma que o custo da árvore MST com a matriz modificada vai ser M' e M'<=R+K, então podemos usar
+M'-K como heuristica, pois M'-K<=R.
+
+Também consideramos que uma rota não pode passar 2 vezes pelo mesmo ginásio, exemplo, uma rota não pode passar pelo ginásio O, gastar o tempo de batalha nele e dps passar por ele denovo gastando 0 de tempo.
+
+Vale ressaltar que o algoritmo A* é um algoritmo que é garantido de achar o ótimo, enquanto o AG usado na busca local não garante que achará o ótimo em um tempo finito.
